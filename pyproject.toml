@@ -1,6 +1,13 @@
 [project]
 name = "password-manager"
 version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
 dependencies = [
     "bcrypt>=4.3.0",
+    "cryptography>=45.0.5",
+    "dotenv>=0.9.9",
+    "textual>=4.0.0",
+    "textual-dev>=1.7.0",
 ]
