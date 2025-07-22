@@ -4,6 +4,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from dotenv import load_dotenv
+from user import User
 
 @contextmanager
 def db_conn():
@@ -27,7 +28,7 @@ def db_init():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER UNIQUE PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
+                    username TEXT NOT NULL UNIQUE,
                     password TEXT NOT NULL,
                     salt BLOB NOT NULL,
                     role TEXT NOT NULL
@@ -39,7 +40,9 @@ def db_init():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS vaults (
                     id INTEGER UNIQUE PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL
+                    vault_name TEXT UNIQUE NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             ''')
 
@@ -50,9 +53,12 @@ def db_init():
                 CREATE TABLE IF NOT EXISTS passwords (
                     id INTEGER UNIQUE PRIMARY KEY AUTOINCREMENT,
                     vault_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
                     username TEXT NOT NULL,
                     password TEXT NOT NULL,
                     website TEXT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                     FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
                 )
             ''')
@@ -63,12 +69,12 @@ def db_init():
         raise
 
 
-def get_user(user):
+def get_user(user) -> dict | None:
     try:
         with db_conn() as (conn, cursor):
 
             result = cursor.execute(
-                "SELECT * FROM users WHERE name = ?", (user,)
+                "SELECT * FROM users WHERE username = ?", (user,)
             )
             result = cursor.fetchone()
 
@@ -79,28 +85,33 @@ def get_user(user):
             # Convert tuple to dictionary. I chose to do this for two reasons.
             # 1. It doesn't require the calling function to know the order of the columns
             # 2. It's consistent with the return types of my other database functions
-            user_dict = {
-                'id': result[0],        # User ID (integer)
-                'name': result[1],      # Username (text)
-                'password': result[2], # Hashed master password (text)
-                'salt': result[3],      # Salt for key derivation (blob)
-                'role': result[4]       # User role (text)
-            }
-            return user_dict
+            return User(
+                id = result[0],        # User ID (integer)
+                username = result[1],      # Username (text)
+                password = result[2],  # Hashed master password (text)
+                salt = result[3],      # Salt for key derivation (blob)
+                role = result[4]      # User role (text)
+            )
     except sqlite3.Error as e:
         logging.error(f"Database error in get_user: {e}")
         return None
     
 
-def create_user(name, password, role):
+def create_user(username, password, role):
     salt = os.urandom(16)
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     try:
         with db_conn() as (conn, cursor):
             cursor.execute(
-                "INSERT INTO users (name, password, salt, role) VALUES (?, ?, ?, ?)",
-                (name, hashed_pw, salt, role)
+                "INSERT INTO users (username, password, salt, role) VALUES (?, ?, ?, ?)",
+                (username, hashed_pw, salt, role)
+            )
+            # Automatically create one vault called Personal for every user
+            user_id = cursor.lastrowid
+            cursor.execute(
+                "INSERT INTO vaults (vault_name, user_id) VALUES (?, ?)", 
+                ("Personal", user_id)
             )
             conn.commit()
     except sqlite3.Error as e:
@@ -115,7 +126,7 @@ def create_login(vault_id, record_username, record_password, account_username, a
     # STEP 1: Get the Salt from the user record
     try:
         with db_conn() as (conn, cursor):
-            cursor.execute("SELECT salt FROM users WHERE name = ?", (account_username,))
+            cursor.execute("SELECT salt FROM users WHERE username = ?", (account_username,))
             result = cursor.fetchone()
             if not result:
                 logging.error(f"User {account_username} not found")
@@ -162,7 +173,7 @@ def get_logins(vault_id, username, password):
     # PART 1: Retrieve user-specific salt
     try:
         with db_conn() as (conn, cursor):
-            cursor.execute("SELECT salt FROM users WHERE name = ?", (username,))
+            cursor.execute("SELECT salt FROM users WHERE username = ?", (username,))
             result = cursor.fetchone()
             if not result:
                 logging.warning(f"User {username} not found")
@@ -218,3 +229,28 @@ def get_logins(vault_id, username, password):
         logging.error(f"Database error retrieving login records: {e}")
         return []
 
+def get_vaults(user_id) -> list:
+    if not isinstance(user_id, int):
+        logging.error(f"Invalid user_id type: expected int, got {type(user_id)}")
+        return []
+    
+    try:
+        with db_conn() as (conn, cursor):
+            cursor.execute("SELECT * FROM vaults WHERE user_id = ?", (user_id,))
+            result = cursor.fetchall()
+            if not result:
+                logging.warning(f"No vaults found for user ID {user_id}")
+                return []
+            
+            vaults = [
+                {
+                    'id': row[0],
+                    'vault_name': row[1],
+                    'user_id': row[2]
+                }
+                for row in result
+            ]
+            return vaults
+    except sqlite3.Error as e:
+        logging.error(f"Database error retrieving users vaults: {e}")
+        return []

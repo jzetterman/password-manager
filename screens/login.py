@@ -1,9 +1,10 @@
-import bcrypt
+import bcrypt, logging
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Input, Button, Static
 from textual.containers import Container, Vertical, Center
 from database.db import create_user, get_user
+from screens.dashboard import DashboardScreen
 from user import User
 
 class LoginScreen(Screen):
@@ -40,7 +41,7 @@ class LoginScreen(Screen):
         super().__init__(*args, **kwargs)
         self.mode = "login"
         self.user = User()
-        self.db_user = {}
+        self.db_user = User()
 
     def compose(self) -> ComposeResult:
         with Container(classes="center-container"):
@@ -60,9 +61,12 @@ class LoginScreen(Screen):
         if self.mode == "login":
             self.user.password = self.query_one("#password", Input).value
             if self.user.username and self.user.password:
-                stored_hash = self.db_user["password"].encode('utf-8')
+                stored_hash = self.db_user.password.encode('utf-8')
                 if bcrypt.checkpw(self.user.password.encode('utf-8'), stored_hash):
-                    self.app.push_screen("dashboard")
+                    self.user = self.db_user
+                    self.user.password = ""
+                    logging.debug(f"Successful login for {self.user.username} (ID: {self.user.id})")
+                    self.app.push_screen(DashboardScreen(self.db_user))
                 else:
                     message.update("Password is incorrect")
                     message.styles.color = "red"
@@ -73,7 +77,7 @@ class LoginScreen(Screen):
         elif self.mode == "create":
             if self.user.password == self.user.confirm_password:
                 create_user(self.user.username, self.user.password, self.user.role)
-                self.app.push_screen("dashboard")
+                self.app.push_screen(DashboardScreen(self.db_user))
             else:
                 message.update("Passwords don't match. Try again.")
                 message.styles.color = "red"
@@ -104,6 +108,7 @@ class LoginScreen(Screen):
         if event.input.id == "username":
             self.user.username = username.value
             self.db_user = get_user(self.user.username)
+            logging.info(f"User lookup returned: {self.db_user}")
             back_button = self.query_one("#back", Button)
             if self.db_user:
                 pw_input.remove_class("hidden")
