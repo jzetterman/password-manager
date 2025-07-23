@@ -9,3 +9,5 @@ class User:
     confirm_password: Optional[str] = ""
     salt: Optional[bytes] = b""
     role: str = "user"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None

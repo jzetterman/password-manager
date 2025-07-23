@@ -17,7 +17,7 @@ def db_conn():
     finally:
         cursor.close()
         conn.close()
-    
+
 
 def db_init():
     try:
@@ -82,7 +82,7 @@ def get_user(user) -> dict | None:
             if not result:
                 logging.warning(f"User record not found: {user}")
                 return None
-            
+
             # Convert tuple to dictionary. I chose to do this for two reasons.
             # 1. It doesn't require the calling function to know the order of the columns
             # 2. It's consistent with the return types of my other database functions
@@ -96,12 +96,12 @@ def get_user(user) -> dict | None:
     except sqlite3.Error as e:
         logging.error(f"Database error in get_user: {e}")
         return None
-    
+
 
 def create_user(username, password, role):
     salt = os.urandom(16)
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    
+
     try:
         with db_conn() as (conn, cursor):
             cursor.execute(
@@ -111,10 +111,12 @@ def create_user(username, password, role):
             # Automatically create one vault called Personal for every user
             user_id = cursor.lastrowid
             cursor.execute(
-                "INSERT INTO vaults (vault_name, user_id) VALUES (?, ?)", 
+                "INSERT INTO vaults (vault_name, user_id) VALUES (?, ?)",
                 ("Personal", user_id)
             )
+            # new_id = cursor.lastrowid
             conn.commit()
+            return User(id=user_id, username=username, password=password, confirm_password="", salt=salt, role=role)
     except sqlite3.Error as e:
         logging.error(f"Database error in create_user: {e}")
         raise
@@ -124,7 +126,7 @@ def create_login(vault_id, record_name, record_username, record_password, accoun
     logging.info(f"Creating login: vault_id={vault_id}, name={record_name}, username={record_username}, website={website}, account_username={account_username}")
     if not account_username or not account_password:
         return {'success': False, 'error': 'Username and password are required'}
-    
+
     # STEP 1: Get the Salt from the user record
     try:
         with db_conn() as (conn, cursor):
@@ -164,7 +166,7 @@ def create_login(vault_id, record_name, record_username, record_password, accoun
             if cursor.fetchone() is None:
                 logging.error(f"Vault ID {vault_id} not found")
                 return {'success': False, 'error': f"Vault ID {vault_id} not found"}
-            
+
             # Encrypt the password and insert record into database
             encrypted_pw = cipher.encrypt(record_password.encode('utf-8')).decode('utf-8')
             cursor.execute(
@@ -184,7 +186,7 @@ def create_login(vault_id, record_name, record_username, record_password, accoun
         return {'success': False, 'error': f"Unexpected error in create_login: {e}"}
 
 
-# Get a list of logins saved in the database. 
+# Get a list of logins saved in the database.
 # Return a list of dictionaries or an empty list.
 def get_logins(vault_id, username, password):
     # PART 1: Retrieve user-specific salt
@@ -217,7 +219,7 @@ def get_logins(vault_id, username, password):
             if cursor.fetchone() is None:
                 logging.warning(f"Vault ID {vault_id} not found")
                 return []
-            
+
             cursor.execute("SELECT * FROM passwords WHERE vault_id = ?", (vault_id,))
             result = cursor.fetchall()
 
@@ -253,7 +255,7 @@ def get_vaults(user_id) -> list:
     if not isinstance(user_id, int):
         logging.error(f"Invalid user_id type: expected int, got {type(user_id)}")
         return []
-    
+
     try:
         with db_conn() as (conn, cursor):
             cursor.execute("SELECT * FROM vaults WHERE user_id = ?", (user_id,))
@@ -261,7 +263,7 @@ def get_vaults(user_id) -> list:
             if not result:
                 logging.warning(f"No vaults found for user ID {user_id}")
                 return []
-            
+
             vaults = [
                 {
                     'id': row[0],
