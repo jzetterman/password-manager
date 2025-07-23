@@ -10,6 +10,7 @@ from user import User
 def db_conn():
     load_dotenv()
     conn = sqlite3.connect(os.getenv("DATABASE_NAME"))
+    conn.execute("PRAGMA foreign_keys = ON;")
     cursor = conn.cursor()
     try:
         yield conn, cursor
@@ -54,9 +55,9 @@ def db_init():
                     id INTEGER UNIQUE PRIMARY KEY AUTOINCREMENT,
                     vault_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
-                    username TEXT NOT NULL,
-                    password TEXT NOT NULL,
-                    website TEXT NULL,
+                    username TEXT,
+                    password TEXT,
+                    website TEXT,
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                     FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
@@ -119,9 +120,10 @@ def create_user(username, password, role):
         raise
 
 
-def create_login(vault_id, record_username, record_password, account_username, account_password, website=""):
+def create_login(vault_id, record_name, record_username, record_password, account_username, account_password, website=""):
+    logging.info(f"Creating login: vault_id={vault_id}, name={record_name}, username={record_username}, website={website}, account_username={account_username}")
     if not account_username or not account_password:
-        return {'success': False, 'error': 'User name and password are required'}
+        return {'success': False, 'error': 'Username and password are required'}
     
     # STEP 1: Get the Salt from the user record
     try:
@@ -132,24 +134,32 @@ def create_login(vault_id, record_username, record_password, account_username, a
                 logging.error(f"User {account_username} not found")
                 return {'success': False, 'error': f"User {account_username} not found"}
             salt = result[0]
+            logging.info(f"Retrieved salt for {account_username}")
     except sqlite3.Error as e:
         logging.error(f"Database error retrieving user salt: {e}")
         return {'success': False, 'error': f"Database error: {e}"}
+    except Exception as e:
+        logging.error(f"Unexpected error retrieving user salt: {e}")
+        return {'success': False, 'error': f"Unexpected error retrieving user salt: {e}"}
 
     # STEP 2: Derive Fernet key from password and salt
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-    )
-    encryption_key = base64.urlsafe_b64encode(kdf.derive(account_password.encode('utf-8')))
-    cipher = Fernet(encryption_key)
+    try:
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        encryption_key = base64.urlsafe_b64encode(kdf.derive(account_password.encode('utf-8')))
+        cipher = Fernet(encryption_key)
+        logging.info("Encryption key derived successfully")
+    except Exception as e:
+        logging.error(f"Encryption setup failed: {e}")
+        return {'success': False, 'error': f"Encryption error: {e}"}
 
     # STEP 3: Create the record in the database
     try:
         with db_conn() as (conn, cursor):
-            # Validate vault_id
             cursor.execute("SELECT id FROM vaults WHERE id = ?", (vault_id,))
             if cursor.fetchone() is None:
                 logging.error(f"Vault ID {vault_id} not found")
@@ -158,13 +168,20 @@ def create_login(vault_id, record_username, record_password, account_username, a
             # Encrypt the password and insert record into database
             encrypted_pw = cipher.encrypt(record_password.encode('utf-8')).decode('utf-8')
             cursor.execute(
-                "INSERT INTO passwords (vault_id, username, password, website) VALUES (?, ?, ?, ?)",
-                (vault_id, record_username, encrypted_pw, website)
+                "INSERT INTO passwords (vault_id, name, username, password, website) VALUES (?, ?, ?, ?, ?)",
+                (vault_id, record_name, record_username, encrypted_pw, website)
             )
+            new_id = cursor.lastrowid
+            logging.info(f"Inserted login with ID {new_id}")
             conn.commit()
+            logging.info(f"Committed login ID {new_id} to database")
+            return {'success': True, 'id': new_id}
     except sqlite3.Error as e:
         logging.error(f"Database error in create_login: {e}")
         return {'success': False, 'error': f"Database error: {e}"}
+    except Exception as e:
+        logging.error(f"Unexpected error in create_login: {e}")
+        return {'success': False, 'error': f"Unexpected error in create_login: {e}"}
 
 
 # Get a list of logins saved in the database. 
@@ -210,7 +227,7 @@ def get_logins(vault_id, username, password):
                 # STEP 1: Decrypt the stored password for the row
                 try:
                     # Decrypt the password
-                    decrypted_password = cipher.decrypt(row[3].encode('utf-8')).decode('utf-8')
+                    decrypted_password = cipher.decrypt(row[4].encode('utf-8')).decode('utf-8')
                 except Fernet.InvalidToken:
                     logging.error(f"Decryption failed for login ID {row[0]}: Invalid master password or corrupted data")
                     continue  # Skip invalid records
@@ -219,9 +236,12 @@ def get_logins(vault_id, username, password):
                 login_dict = {
                     'id': row[0],
                     'vault_id': row[1],
-                    'username': row[2],
+                    'name': row[2],
+                    'username': row[3],
                     'password': decrypted_password,
-                    'website': row[4]
+                    'website': row[5],
+                    'created_at': row[6],
+                    'updated_at': row[7]
                 }
                 login_records.append(login_dict)
             return login_records

@@ -64,7 +64,6 @@ class LoginScreen(Screen):
                 stored_hash = self.db_user.password.encode('utf-8')
                 if bcrypt.checkpw(self.user.password.encode('utf-8'), stored_hash):
                     self.user = self.db_user
-                    self.user.password = ""
                     logging.debug(f"Successful login for {self.user.username} (ID: {self.user.id})")
                     self.app.push_screen(DashboardScreen(self.db_user))
                 else:

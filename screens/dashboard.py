@@ -1,3 +1,4 @@
+import datetime
 import logging
 from dataclasses import dataclass
 from database.db import get_logins, get_vaults
@@ -8,13 +9,8 @@ from textual.widgets import Header, Footer, Tree, DataTable, Label, Input
 from textual.widgets.tree import TreeNode
 from textual import events
 from user import User
-
-
-@dataclass
-class AppState:
-    user: User
-    selected_vault_id: int | None = None
-    selected_login_id: int | None = None
+from modals.add_login_modal import AddLoginScreen
+from app.models import AppState
 
 
 class VaultTree(Tree):
@@ -34,6 +30,7 @@ class VaultTree(Tree):
         for vault in vaults:
             node = self.root.add_leaf(vault['vault_name'])
             node.data = vault["id"]
+            logging.info(f"Added vault node: name={vault['vault_name']}, id={vault['id']}")
 
 
 class ItemList(DataTable):
@@ -43,29 +40,62 @@ class ItemList(DataTable):
 
     def on_mount(self) -> None:
         self.add_columns("Name", "Updated")
+        self.refresh_logins()
         
-    def refresh_logins(self, vault_id) -> None:
+    def refresh_logins(self) -> None:
         self.clear()
+        vault_id = self.state.selected_vault_id
         if vault_id is None:
+            self.add_row("No vault selected", "")
             return
         logins = get_logins(vault_id, self.state.user.username, self.state.user.password)
         for login in logins:
-            self.add_row([login['name'], login['updated_at']])
+            name = login['name'] or ""
+            updated_at = login['updated_at'] or ""
+            # Format updated_at (e.g., "2025-07-23 04:08")
+            if updated_at:
+                try:
+                    updated_at = datetime.datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    self.log.warning(f"Invalid updated_at format: {updated_at}")
+            self.add_row(name, updated_at)
+            self.log.info(f"Added row: Name={name}, Updated={updated_at}")
         
 
 class ItemDetails(Container):
     def compose(self) -> ComposeResult:
-        yield Label("Item Details")
-        yield Label("Name: Google")
-        yield Label("Username: user@example.com")
-        yield Input(placeholder="Password (hidden)", password=True, disabled=True)
-        yield Label("Website: https://google.com")
+        yield Label("Password Details", id="title")
+        yield Label("Name: ", id="name")
+        yield Label("Username: ", id="username")
+        yield Input(placeholder="Password (hidden)", password=True, disabled=True, id="password")
+        yield Label("Website: ", id="website")
+        yield Label("Created At: ", id="created_at")
+        yield Label("Updated At: ", id="updated_at")
+
+    def update_details(self, login: dict | None) -> None:
+        if login is None:
+            self.query_one("#title").update("Password Details")
+            self.query_one("#name").update("Name: ")
+            self.query_one("#username").update("Username: ")
+            self.query_one("#password").value = ""
+            self.query_one("#website").update("Website: ")
+            self.query_one("#created_at").update("Created At: ")
+            self.query_one("#updated_at").update("Updated At: ")
+        else:
+            self.query_one("#title").update("Password Details")
+            self.query_one("#name").update(f"Name: {login['name']}")
+            self.query_one("#username").update(f"Username: {login['username'] or ''}")
+            self.query_one("#password").value = login['password'] or ""
+            self.query_one("#website").update(f"Website: {login['website'] or ''}")
+            self.query_one("#created_at").update(f"Created At: {login['created_at']}")
+            self.query_one("#updated_at").update(f"Updated At: {login['updated_at']}")
 
 class DashboardScreen(Screen):
     BINDINGS = [
-        ("c", "on_input_submitted", "Create an entry"),
-        ("u", "go_back", "Update an entry"),
-        ("D", "delete", "Delete an entry")
+        ("c", "create_entry", "Create an entry"),
+        ("u", "update_entry", "Update an entry"),
+        ("D", "delete_entry", "Delete an entry"),
+        ("x", "debug_state", "Debug State")
     ]
     CSS = """
     #main-content {
@@ -81,6 +111,9 @@ class DashboardScreen(Screen):
         width: 30%;
         background: $panel;
     }
+    ItemList {
+        min-width: 40;  /* Ensure table has enough space */
+    }
     #item-details {
         width: 50%;
         background: $panel;
@@ -91,6 +124,7 @@ class DashboardScreen(Screen):
         super().__init__()
         self.user = user
         self.state = AppState(user=self.user)
+        logging.info(f"Initialized DashboardScreen with user_id={self.state.user.id}, username={self.state.user.username}, password={'***' if self.state.user.password else None}")
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -99,15 +133,41 @@ class DashboardScreen(Screen):
             yield Container(ItemList(self.state), id="item-list")
             yield ItemDetails(id="item-details")
         yield Footer()
+            
 
+    def action_create_entry(self) -> None:
+        logging.info(f"Opening AddLoginScreen with state: {self.state}")
+        def handle_new_entry(result: bool) -> None:
+            if result:
+                item_list = self.query_one(ItemList)
+                item_list.refresh_logins()
+                logging.info("Login saved, refreshed ItemList")
+
+        self.app.push_screen(AddLoginScreen(self.state), callback=handle_new_entry)
+
+    
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         if hasattr(event.node, 'data') and event.node.data is not None:
-            vault_id = event.node.data
+            self.state.selected_vault_id = event.node.data
             item_list = self.query_one(ItemList)
-            item_list.refresh_logins(vault_id)
+            item_list.refresh_logins()
         else:
-            return
+            self.state.selected_vault_id = None
+            item_list = self.query_one(ItemList)
+            item_list.refresh_logins()
+
+
+    def action_debug_state(self) -> None:
+        logging.info(f"Current state: {self.state}")
+
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        selected_row = event.row
-        item_details = self.query_one(ItemDetails)
+        item_list = self.query_one(ItemList)
+        cursor = event.cursor_row
+        if cursor is not None and cursor < len(item_list.rows):
+            login = get_logins(self.state.selected_vault_id)[cursor]
+            item_details = self.query_one(ItemDetails)
+            item_details.update_details(login)
+        else:
+            item_details = self.query_one(ItemDetails)
+            item_details.update_details(None)
