@@ -31,7 +31,12 @@ class VaultTree(Tree):
             node = self.root.add_leaf(vault['vault_name'])
             node.data = vault["id"]
             logging.info(f"Added vault node: name={vault['vault_name']}, id={vault['id']}")
-
+        if self.root.children:
+            first_node = self.root.children[0]
+            self.select_node(first_node)
+            self.state.selected_vault_id = first_node.data
+            logging.info(f"Auto-selected first vault: id={first_node.data}, name={first_node.label}")
+            self.post_message(Tree.NodeSelected(node=first_node))
 
 class ItemList(DataTable):
     def __init__(self, state: AppState, *args, **kwargs):
@@ -41,7 +46,7 @@ class ItemList(DataTable):
     def on_mount(self) -> None:
         self.add_columns("Name", "Updated")
         self.refresh_logins()
-        
+
     def refresh_logins(self) -> None:
         self.clear()
         vault_id = self.state.selected_vault_id
@@ -60,7 +65,7 @@ class ItemList(DataTable):
                     self.log.warning(f"Invalid updated_at format: {updated_at}")
             self.add_row(name, updated_at)
             self.log.info(f"Added row: Name={name}, Updated={updated_at}")
-        
+
 
 class ItemDetails(Container):
     def compose(self) -> ComposeResult:
@@ -133,7 +138,7 @@ class DashboardScreen(Screen):
             yield Container(ItemList(self.state), id="item-list")
             yield ItemDetails(id="item-details")
         yield Footer()
-            
+
 
     def action_create_entry(self) -> None:
         logging.info(f"Opening AddLoginScreen with state: {self.state}")
@@ -145,7 +150,7 @@ class DashboardScreen(Screen):
 
         self.app.push_screen(AddLoginScreen(self.state), callback=handle_new_entry)
 
-    
+
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         if hasattr(event.node, 'data') and event.node.data is not None:
             self.state.selected_vault_id = event.node.data
