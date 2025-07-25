@@ -176,7 +176,6 @@ def create_login(vault_id, record_name, record_username, record_password, accoun
             new_id = cursor.lastrowid
             logging.info(f"Inserted login with ID {new_id}")
             conn.commit()
-            logging.info(f"Committed login ID {new_id} to database")
             return {'success': True, 'id': new_id}
     except sqlite3.Error as e:
         logging.error(f"Database error in create_login: {e}")
@@ -276,3 +275,25 @@ def get_vaults(user_id) -> list:
     except sqlite3.Error as e:
         logging.error(f"Database error retrieving users vaults: {e}")
         return []
+
+def create_vault(vault_name, user_id):
+    if not vault_name or not user_id:
+        logging.error(f"Vault name is required.")
+        return[]
+
+    try:
+        with db_conn() as (conn, cursor):
+            cursor.execute(
+                "INSERT INTO vaults (vault_name, user_id) VALUES (?, ?)",
+                (vault_name, user_id)
+            )
+            new_id = cursor.lastrowid
+            logging.info(f"Inserted vault with ID {new_id}")
+            conn.commit()
+            return {'success': True, 'id': new_id}
+    except sqlite3.Error as e:
+        logging.error(f"Database error creating vault: {e}")
+        return {'success': False, 'error': f"Database error: {e}"}
+    except Exception as e:
+        logging.error(f"Unexpected error in create_vault: {e}")
+        return {'success': False, 'error': f"Unexpected error in create_vault: {e}"}

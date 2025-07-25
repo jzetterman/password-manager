@@ -10,10 +10,15 @@ from textual.widgets.tree import TreeNode
 from textual import events
 from user import User
 from modals.add_login_modal import AddLoginScreen
+from modals.add_vault_modal import AddVaultScreen
 from app.models import AppState
 
 
 class VaultTree(Tree):
+    BINDINGS = [
+        ("c", "create_entry", "Create a new vault"),
+    ]
+
     def __init__(self, state: AppState, *args, **kwargs):
         super().__init__(label="Vaults", *args, **kwargs)
         self.state = state
@@ -31,6 +36,8 @@ class VaultTree(Tree):
             node = self.root.add_leaf(vault['vault_name'])
             node.data = vault["id"]
             logging.info(f"Added vault node: name={vault['vault_name']}, id={vault['id']}")
+
+        # Auto select the first vault in the vault list
         if self.root.children:
             first_node = self.root.children[0]
             self.select_node(first_node)
@@ -38,7 +45,33 @@ class VaultTree(Tree):
             logging.info(f"Auto-selected first vault: id={first_node.data}, name={first_node.label}")
             self.post_message(Tree.NodeSelected(node=first_node))
 
+    def refresh_vaults(self) -> None:
+        self.clear()
+        vaults = get_vaults(self.state.user.id)
+        for vault in vaults:
+            node = self.root.add_leaf(vault['vault_name'])
+            node.data = vault['id']
+
+        if self.root.children:
+            first_node = self.root.children[0]
+            self.select_node(first_node)
+            self.state.selected_vault_id = first_node.data
+            self.post_message(Tree.NodeSelected(node=first_node))
+
+    def action_create_entry(self) -> None:
+        logging.info(f"Opening AddVaultScreen with state: {self.state}")
+        def handle_new_entry(result: bool) -> None:
+            if result:
+                self.refresh_vaults()
+                logging.info("Vault saved, refreshed VaultTree")
+
+        self.app.push_screen(AddVaultScreen(self.state), callback=handle_new_entry)
+
+
 class ItemList(DataTable):
+    BINDINGS = [
+        ("c", "create_entry", "Create a new login"),
+    ]
     def __init__(self, state: AppState, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.state = state
@@ -65,6 +98,15 @@ class ItemList(DataTable):
                     self.log.warning(f"Invalid updated_at format: {updated_at}")
             self.add_row(name, updated_at)
             self.log.info(f"Added row: Name={name}, Updated={updated_at}")
+
+    def action_create_entry(self) -> None:
+        logging.info(f"Opening AddLoginScreen with state: {self.state}")
+        def handle_new_entry(result: bool) -> None:
+            if result:
+                self.refresh_logins()
+                logging.info("Login saved, refreshed ItemList")
+
+        self.app.push_screen(AddLoginScreen(self.state), callback=handle_new_entry)
 
 
 class ItemDetails(Container):
@@ -97,10 +139,8 @@ class ItemDetails(Container):
 
 class DashboardScreen(Screen):
     BINDINGS = [
-        ("c", "create_entry", "Create an entry"),
         ("u", "update_entry", "Update an entry"),
         ("D", "delete_entry", "Delete an entry"),
-        ("x", "debug_state", "Debug State")
     ]
     CSS = """
     #main-content {
@@ -139,18 +179,6 @@ class DashboardScreen(Screen):
             yield ItemDetails(id="item-details")
         yield Footer()
 
-
-    def action_create_entry(self) -> None:
-        logging.info(f"Opening AddLoginScreen with state: {self.state}")
-        def handle_new_entry(result: bool) -> None:
-            if result:
-                item_list = self.query_one(ItemList)
-                item_list.refresh_logins()
-                logging.info("Login saved, refreshed ItemList")
-
-        self.app.push_screen(AddLoginScreen(self.state), callback=handle_new_entry)
-
-
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         if hasattr(event.node, 'data') and event.node.data is not None:
             self.state.selected_vault_id = event.node.data
@@ -160,11 +188,6 @@ class DashboardScreen(Screen):
             self.state.selected_vault_id = None
             item_list = self.query_one(ItemList)
             item_list.refresh_logins()
-
-
-    def action_debug_state(self) -> None:
-        logging.info(f"Current state: {self.state}")
-
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         item_list = self.query_one(ItemList)
