@@ -1,7 +1,6 @@
 import logging, os
 from app.password_manager import PasswordManagerApp
 from database.db import db_init, create_user, get_user
-from functions.get_credential import get_credential
 from textual.app import App
 
 logging.basicConfig(
