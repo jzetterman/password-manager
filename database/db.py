@@ -38,13 +38,14 @@ def db_init():
             ''')
 
             # Create the vaults table
-            # Vault ID and name must be unique
+            # Vault ID and name must be unique per user_id
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS vaults (
                     id INTEGER UNIQUE PRIMARY KEY AUTOINCREMENT,
-                    vault_name TEXT UNIQUE NOT NULL,
+                    vault_name TEXT NOT NULL,
                     user_id INTEGER NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE (vault_name, user_id)
                 )
             ''')
 
