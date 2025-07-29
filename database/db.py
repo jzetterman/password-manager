@@ -1,9 +1,16 @@
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file handles all database operations.
+#########################################
+
 import base64, bcrypt, logging, os, sqlite3
 from contextlib import contextmanager
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from datetime import datetime
 from dotenv import load_dotenv
 from user import User
 

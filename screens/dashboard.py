@@ -1,11 +1,23 @@
-import datetime
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file handles the dashboard screen for the password manager application.
+# Functions:
+# PasswordLabel: Controls whether the password is visible or hidden.
+# VaultTree: Controls the display of vaults.
+# ItemList: Controls the display of saved login items.
+# ItemDetails: Displays the details of saved logins.
+# DashboardScreen: Is the main textual component that draws the dashboard screen.
+#########################################
+
 import logging
 from database.db import get_logins, get_vaults
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Horizontal
 from textual.widgets import Header, Footer, Tree, DataTable, Label
-from textual import events
 from user import User
 from modals.add_update_login_modal import AddUpdateLogin
 from modals.add_vault_modal import AddVaultScreen
@@ -175,7 +187,6 @@ class ItemList(DataTable):
         self.app.push_screen(DeleteLoginModal(self.state), callback=handle_delete)
 
 
-
 class ItemDetails(Container):
     def __init__(self, state: AppState, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -219,17 +230,8 @@ class ItemDetails(Container):
             password_label.update_password(login['password'] or "", self.password_visible)
             self.query_one("#website").update(f"Website: {login['website'] or ''}")
             self.query_one("#created_at").update(f"Created At: {login['created_at']}")
-
-            updated_at_formatted = login['updated_at']
-            # if login['updated_at']:
-            #     try:
-            #         dt = datetime.datetime.strptime(login['updated_at'], "%Y-%m-%d %H:%M:%S")
-            #         updated_at_formatted = dt.strftime("%m-%d-%Y %H:%M")
-            #     except ValueError:
-            #         pass
             logging.info(f"ItemDetails updated_at raw value: '{login['updated_at']}'")
             self.query_one("#updated_at").update(f"Updated At: {login['updated_at']}")
-
 
 
 class DashboardScreen(Screen):

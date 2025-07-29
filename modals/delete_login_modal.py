@@ -1,3 +1,11 @@
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file provides a scary warning message for deleting login entries and handles the deletion process.
+#########################################
+
 import logging
 from textual.app import ComposeResult
 from textual.screen import ModalScreen

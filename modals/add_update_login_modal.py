@@ -1,3 +1,11 @@
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file handles creating and updating login items.
+#########################################
+
 import logging
 from textual.app import ComposeResult
 from textual.screen import ModalScreen

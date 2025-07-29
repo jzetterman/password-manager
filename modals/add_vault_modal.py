@@ -1,7 +1,15 @@
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file handles creating new vaults.
+#########################################
+
 import logging
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
-from textual.containers import Vertical, Container
+from textual.containers import Container
 from textual.widgets import Button, Input, Label
 from textual import on
 from database.db import create_vault

@@ -1,3 +1,11 @@
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file describes a user dataclass.
+#########################################
+
 from dataclasses import dataclass
 from typing import Optional
 

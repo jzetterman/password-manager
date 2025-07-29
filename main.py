@@ -1,7 +1,14 @@
+#########################################
+# John Zetterman
+# Final Project
+# Date Completed: July 28, 2025
+#
+# Description: This file initializes the database and launches the password manager application.
+#########################################
+
 import logging, os
 from app.password_manager import PasswordManagerApp
-from database.db import db_init, create_user, get_user
-from textual.app import App
+from database.db import db_init
 
 logging.basicConfig(
     filename="app.log",
