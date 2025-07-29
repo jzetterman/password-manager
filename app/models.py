@@ -6,3 +6,4 @@ class AppState:
     user: User
     selected_vault_id: int | None = None
     selected_login_id: int | None = None
+    current_login: dict | None = None

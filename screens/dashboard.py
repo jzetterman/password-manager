@@ -1,6 +1,5 @@
 import datetime
 import logging
-from dataclasses import dataclass
 from database.db import get_logins, get_vaults
 from textual.app import ComposeResult
 from textual.screen import Screen
@@ -8,8 +7,9 @@ from textual.containers import Container, Horizontal
 from textual.widgets import Header, Footer, Tree, DataTable, Label
 from textual import events
 from user import User
-from modals.add_login_modal import AddLoginScreen
+from modals.add_update_login_modal import AddUpdateLogin
 from modals.add_vault_modal import AddVaultScreen
+from modals.delete_login_modal import DeleteLoginModal
 from app.models import AppState
 
 
@@ -115,12 +115,8 @@ class ItemList(DataTable):
         logins = get_logins(vault_id, self.state.user.username, self.state.user.password)
         for login in logins:
             name = login['name'] or ""
-            updated_at = login['updated_at'] or ""
-            if updated_at:
-                try:
-                    updated_at = datetime.datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M")
-                except ValueError:
-                    self.log.warning(f"Invalid updated_at format: {updated_at}")
+            updated_at = login['updated_at']
+
             self.add_row(name, updated_at, key=str(login['id']))
             self.log.info(f"Added row: Name={name}, Updated={updated_at}")
 
@@ -131,7 +127,53 @@ class ItemList(DataTable):
                 self.refresh_logins()
                 logging.info("Login saved, refreshed ItemList")
 
-        self.app.push_screen(AddLoginScreen(self.state), callback=handle_new_entry)
+        self.app.push_screen(AddUpdateLogin(self.state, "add"), callback=handle_new_entry)
+
+    def action_update_entry(self) -> None:
+        # Check if we have a selected login
+        if self.state.current_login is None:
+            logging.warning("No login selected for update")
+            return
+
+        current_login = self.state.current_login
+        logging.info(f"Opening AddUpdateLogin for update with login: {current_login['name']}")
+
+        def handle_new_entry(result: bool) -> None:
+            if result:
+                self.refresh_logins()
+                # Get the updated login data and refresh ItemDetails
+                logins = get_logins(self.state.selected_vault_id, self.state.user.username, self.state.user.password)
+                updated_login = next((l for l in logins if l['id'] == current_login['id']), None)
+                if updated_login:
+                    self.state.current_login = updated_login
+                    # Get the dashboard screen and query ItemDetails from there
+                    dashboard_screen = self.screen
+                    item_details = dashboard_screen.query_one(ItemDetails)
+                    item_details.update_details(updated_login)
+                logging.info(f"{current_login['name']} updated, refreshed ItemList and ItemDetails")
+
+        self.app.push_screen(AddUpdateLogin(self.state, "update"), callback=handle_new_entry)
+
+    def action_delete_entry(self) -> None:
+        # Check if we have a selected login
+        if self.state.current_login is None:
+            logging.warning("No login selected for deletion")
+            return
+
+        current_login = self.state.current_login
+        logging.info(f"Opening DeleteLoginModal for deletion of login: {current_login['name']}")
+
+        def handle_delete(result: bool) -> None:
+            if result:
+                self.refresh_logins()
+                # Clear ItemDetails since the login was deleted
+                dashboard_screen = self.screen
+                item_details = dashboard_screen.query_one(ItemDetails)
+                item_details.update_details(None)
+                logging.info(f"{current_login['name']} deleted, refreshed ItemList and cleared ItemDetails")
+
+        self.app.push_screen(DeleteLoginModal(self.state), callback=handle_delete)
+
 
 
 class ItemDetails(Container):
@@ -177,6 +219,15 @@ class ItemDetails(Container):
             password_label.update_password(login['password'] or "", self.password_visible)
             self.query_one("#website").update(f"Website: {login['website'] or ''}")
             self.query_one("#created_at").update(f"Created At: {login['created_at']}")
+
+            updated_at_formatted = login['updated_at']
+            # if login['updated_at']:
+            #     try:
+            #         dt = datetime.datetime.strptime(login['updated_at'], "%Y-%m-%d %H:%M:%S")
+            #         updated_at_formatted = dt.strftime("%m-%d-%Y %H:%M")
+            #     except ValueError:
+            #         pass
+            logging.info(f"ItemDetails updated_at raw value: '{login['updated_at']}'")
             self.query_one("#updated_at").update(f"Updated At: {login['updated_at']}")
 
 
@@ -262,19 +313,28 @@ class DashboardScreen(Screen):
             logging.info(f"Selected row_key: {row_key}")
             if row_key is None:
                 logging.warning("No row_key found for selected row")
+                self.state.current_login = None
+                self.state.selected_login_id = None
                 return
             logins = get_logins(self.state.selected_vault_id, self.state.user.username, self.state.user.password)
             login = next((l for l in logins if str(l['id']) == row_key), None)
             if login:
                 logging.info(f"Selected login: ID={row_key}, Name={login['name']}")
+                # Store the current login in state for updates
+                self.state.current_login = login
+                self.state.selected_login_id = login['id']
                 item_details = self.query_one(ItemDetails)
                 item_details.update_details(login)
             else:
                 logging.warning(f"No login found for row_key: {row_key}")
+                self.state.current_login = None
+                self.state.selected_login_id = None
                 item_details = self.query_one(ItemDetails)
                 item_details.update_details(None)
         else:
             logging.info("No valid cursor or empty table, clearing ItemDetails")
+            self.state.current_login = None
+            self.state.selected_login_id = None
             item_details = self.query_one(ItemDetails)
             item_details.update_details(None)
 

@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from datetime import datetime
 from dotenv import load_dotenv
 from user import User
 
@@ -250,6 +251,102 @@ def get_logins(vault_id, username, password):
         logging.error(f"Database error retrieving login records: {e}")
         return []
 
+
+def update_login(vault_id, login_id,  account_username, account_password, record_name=None, record_username=None, record_password=None, website=None):
+    logging.info(f"Updating login: vault_id={vault_id}, name={record_name}, username={record_username}, website={website}, account_username={account_username}")
+    if not account_username or not account_password:
+        return {'success': False, 'error': 'Username and password are required'}
+
+    # STEP 1: Get the Salt from the user record
+    try:
+        with db_conn() as (conn, cursor):
+            cursor.execute("SELECT salt FROM users WHERE username = ?", (account_username,))
+            result = cursor.fetchone()
+            if not result:
+                logging.error(f"User {account_username} not found")
+                return {'success': False, 'error': f"User {account_username} not found"}
+            salt = result[0]
+            logging.info(f"Retrieved salt for {account_username}")
+    except sqlite3.Error as e:
+        logging.error(f"Database error retrieving user salt: {e}")
+        return {'success': False, 'error': f"Database error: {e}"}
+    except Exception as e:
+        logging.error(f"Unexpected error retrieving user salt: {e}")
+        return {'success': False, 'error': f"Unexpected error retrieving user salt: {e}"}
+
+    # STEP 2: Derive Fernet key from password and salt
+    try:
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        encryption_key = base64.urlsafe_b64encode(kdf.derive(account_password.encode('utf-8')))
+        cipher = Fernet(encryption_key)
+        logging.info("Encryption key derived successfully")
+    except Exception as e:
+        logging.error(f"Encryption setup failed: {e}")
+        return {'success': False, 'error': f"Encryption error: {e}"}
+
+    # STEP 3: Build dynamic UPDATE query
+    try:
+        with db_conn() as (conn, cursor):
+            cursor.execute("SELECT name, username, password, website FROM passwords WHERE id = ? AND vault_id = ?",
+                            (login_id, vault_id))
+            current = cursor.fetchone()
+            if not current:
+                return {'success': False, 'error': 'Login record not found'}
+
+            update_fields = []
+            values = []
+
+            if record_name is not None:
+                update_fields.append("name = ?")
+                values.append(record_name)
+
+            if record_username is not None:
+                update_fields.append("username = ?")
+                values.append(record_username)
+
+            if record_password is not None:
+                encrypted_pw = cipher.encrypt(record_password.encode('utf-8')).decode('utf-8')
+                update_fields.append("password = ?")
+                values.append(encrypted_pw)
+
+            if website is not None:
+                update_fields.append("website = ?")
+                values.append(website)
+
+            update_fields.append("updated_at = datetime('now')")
+
+            values.extend([login_id, vault_id])
+
+            if update_fields:
+                query = f"UPDATE passwords SET {', '.join(update_fields)} WHERE id = ? AND vault_id = ?"
+                cursor.execute(query, values)
+                conn.commit()
+                return {'success': True}
+    except sqlite3.Error as e:
+        logging.error(f"Database error updating login record: {e}")
+        return {'success': False, 'error': f"Unexpected error in update_login: {e}"}
+
+
+def delete_login(vault_id, login_id, record_name, account_username, account_password):
+    logging.info(f"Deleting login: vault_id={vault_id}, login_id={login_id}, name={record_name}")
+    if not account_username or not account_password:
+        return {'success': False, 'error': 'Username and password are required'}
+
+    try:
+        with db_conn() as (conn, cursor):
+            cursor.execute("DELETE FROM passwords WHERE id = ? and vault_id = ?", (login_id, vault_id))
+            conn.commit()
+            return {'success': True}
+    except sqlite3.Error as e:
+        logging.error(f"Database error deleting login record: {e}")
+        return {'success': False, 'error': f"Unexpected error in delete_login: {e}"}
+
+
 def get_vaults(user_id) -> list:
     if not isinstance(user_id, int):
         logging.error(f"Invalid user_id type: expected int, got {type(user_id)}")
@@ -275,6 +372,7 @@ def get_vaults(user_id) -> list:
     except sqlite3.Error as e:
         logging.error(f"Database error retrieving users vaults: {e}")
         return []
+
 
 def create_vault(vault_name, user_id):
     if not vault_name or not user_id:
